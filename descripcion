@@ -1,0 +1,5 @@
+This project is based on the objective to make changes on the pool of unix servers we have in the company (more than 2000 Unix servers). We need to make a diferent operations on locally created users, which represent endless work accessing server by server to perform the task. I designed 3 tools to work massively with the large number of local users;
+
+1- Mass deletion of users
+2- List all accounts created locally on all computers (2000+ servers)
+3- Tool to modify a user's shell to block access by setting NOLOGIN.

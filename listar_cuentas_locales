@@ -1,0 +1,113 @@
+dfSQL = pd.read_sql_query("SELECT Safe, Servidor, Usuario, Estado FROM tbServerUnix ORDER BY Servidor", engineSQL)
+#dfUNX = pd.read_sql_query("SELECT Servidores FROM tbServerIBMUNX ORDER BY Servidores", engineSQL)
+#dfSQL = pd.merge(dfP1, dfUNX, left_on='Servidor', right_on='Servidores', how='inner')
+#dfSQL = dfSQL[['Servidor', 'Safe', 'Usuario', 'Estado']]
+#dfSQL = pd.read_sql_query("SELECT Safe, Servidor, Usuario, Estado FROM tbServerUnix ORDER BY Servidor ", engineSQL)
+for index, row in dfSQL.iterrows():
+    if row['Estado'].strip() == 'success' and row['Usuario'].strip() == 'segdatos':
+        token = cyberarkLogin()
+        buscar = f"{row['Usuario'].strip()} {row['Servidor'].strip()} {row['Safe'].strip()}"
+        servidor = row['Servidor'].strip()
+        secretValue = getAccounts(token, buscar)
+        if secretValue != False:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+                ssh.connect(row['Servidor'].strip(), username = row['Usuario'].strip(), password = secretValue)
+                stdin, stdout, stderr = ssh.exec_command('uname')
+                output = stdout.read().decode('latin-1')
+                if output.strip() == "SunOS":
+                    stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                    output = stdout.read().decode('latin-1')
+                    data = []
+                    for line in output.split('\n'):
+                        if line: data.append(line.split(':'))
+                    df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                    for index, fila in df.iterrows():
+                        stdin, stdout, stderr = ssh.exec_command(f"groups {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        grupos = output
+                        stdin, stdout, stderr = ssh.exec_command(f"sudo /usr/bin/passwd -s {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        caracteres = output.split()
+                        gecos = AnalizarCadenas(fila['Gecos'], r'[^a-zA-Z0-9/_\s-]')
+                        directorio = AnalizarCadenas(fila['Directorio'], r'[^a-zA-Z0-9/_\s-]')
+                        shell = AnalizarCadenas(fila['Shell'], r'[^a-zA-Z0-9/_\s-]')
+                        if caracteres[1].strip() == "PS":
+                            caracteres = "Habilitada"
+                        elif caracteres[1].strip() == "LK":
+                            caracteres = "Bloqueada"
+                        insertSQL = f"INSERT INTO tbUnix (Server, Usuario, Grupo, Gecos, Directorio, Shell, Estado) VALUES ('{servidor}', '{fila['Usuario'].strip()}', '{grupos.strip()}', '{gecos.strip()}', '{directorio.strip()}', '{shell.strip()}', '{caracteres}')"
+                        print(insertSQL)
+                        conexionSQL.execute(insertSQL)
+                elif output.strip() == 'AIX':        
+                    stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                    output = stdout.read().decode('latin-1')
+                    data = []
+                    for line in output.split('\n'):
+                        if line: data.append(line.split(':'))
+                    df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                    for index, fila in df.iterrows():
+                        stdin, stdout, stderr = ssh.exec_command(f"groups {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        grupos = output.split(':')
+                        stdin, stdout, stderr = ssh.exec_command(f"sudo /usr/bin/lsuser -a account_locked {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        caracteres = output.split('=')
+                        if caracteres[1].strip() == 'false':
+                            caracteres = 'Habilitada'
+                        else:
+                            caracteres = 'Bloqueada'
+                        gecos = AnalizarCadenas(fila['Gecos'], r'[^a-zA-Z0-9/_\s-]')
+                        directorio = AnalizarCadenas(fila['Directorio'], r'[^a-zA-Z0-9/_\s-]')
+                        shell = AnalizarCadenas(fila['Shell'], r'[^a-zA-Z0-9/_\s-]')
+                        insertSQL = f"INSERT INTO tbUnix (Server, Usuario, Grupo, Gecos, Directorio, Shell, Estado) VALUES ('{servidor}', '{fila['Usuario'].strip()}', '{grupos[1].strip()}', '{gecos.strip()}', '{directorio.strip()}', '{shell.strip()}', '{caracteres}')"    
+                        print(insertSQL)
+                        conexionSQL.execute(insertSQL)
+                elif output.strip() == 'Linux':
+                    stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                    output = stdout.read().decode('latin-1')
+                    data = []
+                    for line in output.split('\n'):
+                        if line: data.append(line.split(':'))
+                    df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                    for index, fila in df.iterrows():
+                        stdin, stdout, stderr = ssh.exec_command(f"groups {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        grupos = output.split(':')
+                        stdin, stdout, stderr = ssh.exec_command(f"sudo /usr/bin/passwd -S {fila['Usuario'].strip()}")
+                        output = stdout.read().decode('latin-1')
+                        caracteres = output.split()
+                        gecos = AnalizarCadenas(fila['Gecos'], r'[^a-zA-Z0-9/_\s-]')
+                        directorio = AnalizarCadenas(fila['Directorio'], r'[^a-zA-Z0-9/_\s-]')
+                        shell = AnalizarCadenas(fila['Shell'], r'[^a-zA-Z0-9/_\s-]')
+                        if caracteres[1].strip() == "PS":
+                            caracteres = "Habilitada"
+                        elif caracteres[1].strip() == "LK":
+                            caracteres = "Bloqueada"
+                        insertSQL = f"INSERT INTO tbUnix (Server, Usuario, Grupo, Gecos, Directorio, Shell, Estado) VALUES ('{servidor}', '{fila['Usuario'].strip()}', '{grupos[1].strip()}', '{gecos.strip()}', '{directorio.strip()}', '{shell.strip()}', '{caracteres}')"    
+                        print(insertSQL)
+                        conexionSQL.execute(insertSQL)
+                conexionSQL.commit()
+                ssh.close()
+            except Exception as ex:
+                    strMensaje = str(ex)         
+        else:
+            strMensaje = f"Revisar Servidor en CyberArk"
+            GrabarLog(row['Servidor'].strip(), strMensaje)   
+    else:
+        strMensaje = f"La cuenta segdatos del servidor se encuentra alarmada."
+        GrabarLog(row['Servidor'].strip(), strMensaje)
+'''
+dfCSV = pd.read_sql_query("SELECT * FROM tbUnix ORDER BY Server, Usuario", engineSQL)
+dfCSV.to_csv("C:\\Automatizacion\\etc_passwd.csv", index=False)
+ruta_completa = os.path.join("C:\\Automatizacion", "etc_passwd.csv")
+while not os.path.exists(ruta_completa):
+    time.sleep(1)
+dfCSV = pd.read_sql_query("SELECT * FROM tbUnix_Log ORDER BY Server, Racional, Fecha", engineSQL)
+dfCSV.to_csv("C:\\Automatizacion\\etc_passwd_log.csv", index=False)
+ruta_completa = os.path.join("C:\\Automatizacion", "etc_passwd_log.csv")
+while not os.path.exists(ruta_completa):
+    time.sleep(1)
+conexionSQL.close()
+'''

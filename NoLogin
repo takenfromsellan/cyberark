@@ -1,0 +1,150 @@
+dfSQL = pd.read_sql_query("SELECT Servidor FROM tbNoLogin GROUP BY Servidor ORDER BY Servidor", engineSQL)
+for index, fila in dfSQL.iterrows():
+    strMensaje = None
+    token = cyberarkLogin()
+    buscar = f"segdatos {fila['Servidor'].strip().lower()}"
+    servidor = fila['Servidor'].strip().lower()
+    secretValue = getAccounts(token, buscar)
+    if secretValue != None:
+        #establce la conexion al servidor por SSH
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(fila['Servidor'].strip(), username = "segdatos", password = secretValue)
+            stdin, stdout, stderr = ssh.exec_command('uname')
+            output = stdout.read().decode('latin-1').strip()
+            """
+            Arma un DF con todas las cuentas a las que tiene que bloquear segun el servidor que viene del DF principal
+            """
+            dfNoLogin = pd.read_sql_query(f"SELECT Cuenta FROM tbNoLogin WHERE Servidor = '{servidor}'", engineSQL)
+            """
+            Aca realiza el bloqueo de las cuentas y cambio de shell segun la distribucion
+            del SO.
+            """
+            if output.strip() == "AIX":
+                bloqueo = False
+                for index, registro in dfNoLogin.iterrows():
+                    stdin, stdout, stderr = ssh.exec_command(f"id {registro['Cuenta'].strip()}")
+                    output = stderr.read().decode('latin-1')
+                    if output == "":
+                        stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/lsuser -a account_locked {registro["Cuenta"].strip()}')
+                        output = stdout.read().decode('latin-1')
+                        caracteres = output.split('=')
+                        if caracteres[1].strip() == 'false':
+                            stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/chuser account_locked=true maxage=0 {registro["Cuenta"].strip()}')
+                            CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                            stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                            output = stdout.read().decode('latin-1')
+                            data = []
+                            for line in output.split('\n'):
+                                if line: data.append(line.split(':'))
+                            df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                            if bloqueo == False:
+                                shell = ""
+                                for index, fila in df.iterrows():
+                                    if "/nologin" in fila['Shell'].strip():
+                                        bloqueo = True
+                                        shell = fila['Shell'].strip()
+                                        break
+                                    else:
+                                        if "/false" in fila['Shell'].strip():
+                                            bloqueo = True
+                                            shell = fila['Shell'].strip()
+                                            break
+                            if shell != "":
+                                stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/chuser -s {fila["Shell"].strip()} {registro["Cuenta"].strip()}')
+                        else:
+                            CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                    else:
+                        CambiarEstado_Login("", servidor, registro['Cuenta'].strip())
+                conexionSQL.commit()
+                
+            else:
+                if output.strip() == "Linux":
+                    for index, registro in dfNoLogin.iterrows():
+                        bloqueo = False
+                        for index, registro in dfNoLogin.iterrows():
+                            stdin, stdout, stderr = ssh.exec_command(f"id {registro['Cuenta'].strip()}")
+                            output = stderr.read().decode('latin-1')
+                            if output == "":
+                                stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/passwd -S {registro["Cuenta"].strip()}')
+                                output = stdout.read().decode('latin-1')
+                                caracteres = output.split()
+                                if caracteres[1].strip() != 'LK':
+                                    stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/passwd -l {registro["Cuenta"].strip()}')
+                                    CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                                    stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                                    output = stdout.read().decode('latin-1')
+                                    data = []
+                                    for line in output.split('\n'):
+                                        if line: data.append(line.split(':'))
+                                    df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                                    if bloqueo == False:
+                                        shell = ""
+                                        for index, fila in df.iterrows():
+                                            if "/nologin" in fila['Shell'].strip():
+                                                bloqueo = True
+                                                shell = fila['Shell'].strip()
+                                                break
+                                            else:
+                                                if "/false" in fila['Shell'].strip():
+                                                    bloqueo = True
+                                                    shell = fila['Shell'].strip()
+                                                    break
+                                    if shell != "":
+                                        stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/sbin/usermod -s {fila["Shell"].strip()} {registro["Cuenta"].strip()}')
+                                else:
+                                    CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                            else:
+                                CambiarEstado_Login("", servidor, registro['Cuenta'].strip())
+                        conexionSQL.commit()
+                else:
+                    bloqueo = False
+                    for index, registro in dfNoLogin.iterrows():
+                        stdin, stdout, stderr = ssh.exec_command(f"id {registro['Cuenta'].strip()}")
+                        output = stderr.read().decode('latin-1')
+                        if output == "":
+                            stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/passwd -s {registro["Cuenta"].strip()}')
+                            output = stdout.read().decode('latin-1')
+                            caracteres = output.split()
+                            if caracteres[1].strip() != 'LK':
+                                stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/bin/passwd -l {registro["Cuenta"].strip()}')
+                                CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                                stdin, stdout, stderr = ssh.exec_command('cat /etc/passwd')
+                                output = stdout.read().decode('latin-1')
+                                data = []
+                                for line in output.split('\n'):
+                                    if line: data.append(line.split(':'))
+                                df = pd.DataFrame(data, columns=['Usuario', 'Contraseña', 'ID Usuario', 'ID Grupo', 'Gecos', 'Directorio', 'Shell'])
+                                if bloqueo == False:
+                                    shell = ""
+                                    for index, fila in df.iterrows():
+                                        if "/nologin" in fila['Shell'].strip():
+                                            bloqueo = True
+                                            shell = fila['Shell'].strip()
+                                            break
+                                        else:
+                                            if "/false" in fila['Shell'].strip():
+                                                bloqueo = True
+                                                shell = fila['Shell'].strip()
+                                                break
+                                if shell != "":
+                                    stdin, stdout, stderr = ssh.exec_command(f'sudo /usr/sbin/usermod -s {fila["Shell"].strip()} {registro["Cuenta"].strip()}')
+                            else:
+                                CambiarEstado_Login("Bloqueado", servidor, registro['Cuenta'].strip())
+                        else:
+                            CambiarEstado_Login("", servidor, registro['Cuenta'].strip())
+                    conexionSQL.commit()
+            """
+            Cerra la conexion de SSH
+            """
+            ssh.close()
+        except Exception as ex:
+            """
+            Graba el log en la tabla tbNoLogin_Log
+            """
+            strMensaje = str(ex)
+            GrabarLog(servidor.strip(), strMensaje)
+    else:
+        strMensaje = f"Revisar Servidor, estado en CA o verificar cuenta Segdatos del servidor {fila['Servidor'].strip()}."
+        GrabarLog(servidor.strip(), strMensaje)
